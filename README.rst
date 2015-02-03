@@ -1,0 +1,43 @@
+Verify Tree - 
+=========================================
+
+|image_pypi| |image_downloads| |image_license| |passing| |quality| |Coverage Status|
+
+* Free and open-source software: ASL2 license
+* Blog: http://virantha.com/category/projects/verifytree
+* Documentation: http://virantha.github.io/verifytree/html
+* Source: https://github.com/virantha/verifytree
+
+Features
+########
+
+* Kitchen
+* Sink
+
+Usage:
+######
+
+See docs
+
+Installation
+############
+
+.. code-block: bash
+
+    $ pip install verifytree
+
+Disclaimer
+##########
+
+The software is distributed on an "AS IS" BASIS, WITHOUT
+WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+
+.. |image_pypi| image:: https://badge.fury.io/py/verifytree.png
+   :target: https://pypi.python.org/pypi/verifytree
+.. |image_downloads| image:: https://pypip.in/d/verifytree/badge.png
+   :target: https://crate.io/packages/verifytree?version=latest
+.. |image_license| image:: https://pypip.in/license/verifytree/badge.png
+.. |passing| image:: https://scrutinizer-ci.com/g/virantha/verifytree/badges/build.png?b=master
+.. |quality| image:: https://scrutinizer-ci.com/g/virantha/verifytree/badges/quality-score.png?b=master
+.. |Coverage Status| image:: https://coveralls.io/repos/virantha/verifytree/badge.png?branch=develop
+   :target: https://coveralls.io/r/virantha/verifytree

@@ -1,0 +1,3 @@
+[console_scripts]
+verifytree = verifytree.verifytree:main
+
