@@ -1,5 +1,5 @@
 #!/usr/bin/env python2.7
-# Copyright 2014 Virantha Ekanayake All Rights Reserved.
+# Copyright 2015 Virantha Ekanayake All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,13 +13,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import argparse
+"""Verify that two trees have identical files.
+
+Usage:
+    verifytree [options] compare <src> <dst>
+    verifytree [options] checksum <file>
+    verifytree [options] validate <dir>
+
+Options:
+    -v --verbose            Verbose logging
+    -d --debug              Debug logging
+    -b <blocksize>          File chunk size [default: 1048576]
+
+"""
+
+from __future__ import print_function
+import docopt
 import sys, os
 import logging
 import shutil
 
 from version import __version__
 import yaml
+
+from filecmp import dircmp
+import hashlib, xxhash, frogress
+import file_checksum
+import dir_checksum
 
 
 """
@@ -53,6 +73,44 @@ class VerifyTree(object):
         return myconfig
 
 
+    def _get_file_size(self, filename):
+        """
+            Returns the file size in bytes. -1 if file does not exist
+            :param filename: Filename to check size
+            :type filename: string
+            :returns: size of file
+            :rtype: int
+        """
+        if os.path.exists(filename):
+            statinfo = os.stat(filename)
+            return statinfo.st_size
+        else:
+            return -1
+    
+    def _iter_file(self, f):
+        buf = f.read(self.blocksize)
+        while len(buf) > 0:
+            yield buf
+            buf = f.read(self.blocksize)
+
+    def _get_hash(self, filename):
+        #hasher = hashlib.md5()
+        hasher = xxhash.xxh64()
+
+        widgets = [ frogress.PercentageWidget, 
+                    frogress.BarWidget, 
+                    frogress.TransferWidget(filename+' '),
+                    frogress.EtaWidget,
+                    frogress.TimerWidget]
+        with open(filename, 'rb') as f:
+            chunks = self._iter_file(f)
+            #for chunk in frogress.bar(chunks, source=f, steps=filesize/self.blocksize):
+            for chunk in frogress.bar(chunks, source=f, widgets=widgets):
+                hasher.update(chunk)
+
+        return hasher.hexdigest()
+
+
     def get_options(self, argv):
         """
             Parse the command-line options and set the following object properties:
@@ -65,83 +123,43 @@ class VerifyTree(object):
             :ivar config: Dict of the config file
 
         """
-        p = argparse.ArgumentParser(
-                description = "",
-                epilog = "Verify Tree version %s (Copyright 2014 Virantha Ekanayake)" % __version__,
-                )
-
-        p.add_argument('-d', '--debug', action='store_true',
-            default=False, dest='debug', help='Turn on debugging')
-
-        p.add_argument('-v', '--verbose', action='store_true',
-            default=False, dest='verbose', help='Turn on verbose mode')
-
-        p.add_argument('-m', '--mail', action='store_true',
-            default=False, dest='mail', help='Send email after conversion')
-
-        #---------
-        # Single or watch mode
-        #--------
-        single_or_watch_group = p.add_mutually_exclusive_group(required=True)
-        # Positional argument for single file conversion
-        single_or_watch_group.add_argument("pdf_filename", nargs="?", help="Scanned pdf file to OCR")
-        # Watch directory for watch mode
-        single_or_watch_group.add_argument('-w', '--watch', 
-             dest='watch_dir', help='Watch given directory and run ocr automatically until terminated')
-
-        #-----------
-        # Filing options
-        #----------
-        filing_group = p.add_argument_group(title="Filing optinos")
-        filing_group.add_argument('-f', '--file', action='store_true',
-            default=False, dest='enable_filing', help='Enable filing of converted PDFs')
-        filing_group.add_argument('-c', '--config', type = argparse.FileType('r'),
-             dest='configfile', help='Configuration file for defaults and PDF filing')
-        filing_group.add_argument('-e', '--evernote', action='store_true',
-            default=False, dest='enable_evernote', help='Enable filing to Evernote')
-
-
-        args = p.parse_args(argv)
-
-        self.debug = args.debug
-        self.verbose = args.verbose
-        self.pdf_filename = args.pdf_filename
-        self.watch_dir = args.watch_dir
-        self.enable_email = args.mail
-
-        if self.debug:
-            logging.basicConfig(level=logging.DEBUG, format='%(message)s')
-
-        if self.verbose:
+        self.args = argv
+        if argv['--verbose']:
             logging.basicConfig(level=logging.INFO, format='%(message)s')
+        if argv['--debug']:
+            logging.basicConfig(level=logging.DEBUG, format='%(message)s')                
 
-        # Parse configuration file (YAML) if specified
-        if args.configfile:
-            self.config = self._get_config_file(args.configfile)
-            logging.debug("Read in configuration file")
-            logging.debug(self.config)
+        if self.args['-b']:
+            self.blocksize = int(self.args['-b'])
+            file_checksum.blocksize = self.blocksize
 
-        if args.enable_evernote:
-            self.enable_evernote = True
+        if self.args['checksum']:
+            self.file_to_checksum = self.args['<file>']
+        elif self.args['validate']:
+            self.dir_to_validate = self.args['<dir>']
         else:
-            self.enable_evernote = False
+            self.src_tree = self.args['<src>']
+            self.dst_tree = self.args['<dst>']
 
-        if args.enable_filing or args.enable_evernote:
-            self.enable_filing = True
-            if not args.configfile:
-                p.error("Please specify a configuration file(CONFIGFILE) to enable filing")
-        else:
-            self.enable_filing = False
 
-        self.watch = False
-
-        if args.watch_dir:
-            logging.debug("Starting to watch")
-            self.watch = True
-
-        if self.enable_email:
-            if not args.configfile:
-                p.error("Please specify a configuration file(CONFIGFILE) to enable email")
+    def run_compare(self, dcmp, level):
+        if level <= 2:
+            print("Checking %s" % (dcmp.left))
+        #for name in dcmp.diff_files:
+        
+        #for name in dcmp.right_only:
+            #print("Different files %s" % name)
+        print("Starting loop")
+        for name in dcmp.same_files:
+            print("checking %s" % (name))
+            md5_src = self._get_hash(os.path.join(dcmp.left,name))
+            md5_dest = self._get_hash(os.path.join(dcmp.right,name))
+            if md5_src == md5_dest:
+                print("Same file %s (%s)" % (name, md5_src))
+            else:
+                print("MD5 mismatch on %s (%s vs %s)" % (name, md5_src, md5_dest))
+        for sub_dcmp in dcmp.subdirs.values():
+            self.run_compare(sub_dcmp, level+1)
 
 
     def go(self, argv):
@@ -153,11 +171,26 @@ class VerifyTree(object):
         """
         # Read the command line options
         self.get_options(argv)
+        if self.args['checksum']:
+            fc = file_checksum.FileChecksum()
+            print ("Checksumming %s" % (self.file_to_checksum), end='')
+            #print (self._get_hash(self.file_to_checksum))
+            print (fc.get_hash(self.file_to_checksum))
+        elif self.args['validate']:
+            dc = dirchecksum.DirChecksum(self.dir_to_validate)
+            dc.validate()
+        else:
+            print("Verifying that destination %s matches with source %s" % (self.dst_tree, self.src_tree))
+            dcmp = dircmp(self.src_tree, self.dst_tree)
+            self.run_compare(dcmp,0)
+
+        #dcmp.report_full_closure()
 
 
 def main():
+    args = docopt.docopt(__doc__, version='Verifytree %s' % __version__)
     script = VerifyTree()
-    script.go(sys.argv[1:])
+    script.go(args)
 
 if __name__ == '__main__':
     main()
