@@ -18,12 +18,15 @@
 Usage:
     verifytree [options] compare <src> <dst>
     verifytree [options] checksum <file>
-    verifytree [options] validate <dir>
+    verifytree [options] validate <dir> [-u] [--no-subdirs]
 
 Options:
     -v --verbose            Verbose logging
     -d --debug              Debug logging
     -b <blocksize>          File chunk size [default: 1048576]
+    -u                      Update checksum files
+    -f                      Force update checksum files
+    --no-subdirs            Don't descend into sub-directories 
 
 """
 
@@ -40,6 +43,7 @@ from filecmp import dircmp
 import hashlib, xxhash, frogress
 import file_checksum
 import dir_checksum
+import check_dirs
 
 
 """
@@ -58,6 +62,8 @@ class VerifyTree(object):
         """ 
         """
         self.config = None
+        self.update_hash_files = False
+        self.force_update_hash_files = False
 
     def _get_config_file(self, config_file):
         """
@@ -137,6 +143,11 @@ class VerifyTree(object):
             self.file_to_checksum = self.args['<file>']
         elif self.args['validate']:
             self.dir_to_validate = self.args['<dir>']
+            if self.args['-u']:
+                self.update_hash_files = True
+            if self.args['-f']:
+                self.force_update_hash_files = True
+
         else:
             self.src_tree = self.args['<src>']
             self.dst_tree = self.args['<dst>']
@@ -177,8 +188,20 @@ class VerifyTree(object):
             #print (self._get_hash(self.file_to_checksum))
             print (fc.get_hash(self.file_to_checksum))
         elif self.args['validate']:
-            dc = dirchecksum.DirChecksum(self.dir_to_validate)
-            dc.validate()
+            checker = check_dirs.CheckDirs()
+            if self.force_update_hash_files:
+                print("Force updating checksum files")
+                checker.force_update_hash_files = self.force_update_hash_files
+                checker.update_hash_files = self.update_hash_files
+            elif self.update_hash_files:
+                print("Updating checksum files")
+                checker.update_hash_files = self.update_hash_files
+
+            if self.args['--no-subdirs']:
+                checker.validate_single_directory(self.dir_to_validate)
+            else:
+                checker.validate(self.dir_to_validate)
+            
         else:
             print("Verifying that destination %s matches with source %s" % (self.dst_tree, self.src_tree))
             dcmp = dircmp(self.src_tree, self.dst_tree)

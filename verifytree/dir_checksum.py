@@ -16,10 +16,46 @@
 """ Class to represent a directory of files and their checksums
 
 """
-import os, logging
+import os, logging, copy
 from file_checksum import FileChecksum
+import yaml, tabulate
+from exceptions import *
 
-class DirectoryMissing(Exception): pass
+class Results(object):
+
+    def __init__(self):
+        self.files_total = 0
+        self.files_new = 0
+        self.files_deleted = 0
+        self.files_changed = 0
+        self.files_validated = 0
+        self.files_chksum_error = 0
+        self.files_size_error = 0
+        self.directory = ""
+
+    def __add__(self, other):
+        sumr = Results()
+        for attr in self.__dict__:
+            if attr.startswith('files'):
+                sumr.__dict__[attr] = self.__dict__[attr] + other.__dict__[attr]
+            elif attr == 'directory':
+                if type(self.__dict__[attr]) is not list:
+                    src = [self.__dict__[attr]]
+                else:
+                    src = copy.copy(self.__dict__[attr])
+                if type(other.__dict__[attr]) is list:
+                    src.extend(copy.copy(other.__dict__[attr]))
+                else:
+                    src.append(other.__dict__[attr])
+                sumr.__dict__[attr] = src
+        return sumr
+
+    def __str__ (self):
+        
+        headers = [x for x in self.__dict__ if x.startswith('files_')]
+        table = [ [self.__dict__[x] for x in headers] ]
+        return tabulate.tabulate(table, headers)
+
 
 class DirChecksum(object):
 
@@ -28,21 +64,133 @@ class DirChecksum(object):
         if not os.path.exists(self.path):
             raise DirectoryMissing('%s does not exist' % self.path)
         self.dbname = '.verifytree_checksum'
-        fs = FileChecksum()
-
+        self.fc = FileChecksum()
+        self.results = Results()
+        self.results.directory = self.path
+        self.update_hash_files = False
+        self.force_update_hash_files = False
+                                
     def generate_checksum(self, checksum_filename):
         root, dirs, files = os.walk(self.path).next()
-        hashes = {}
+        hashes = {'files': {}}
         for filename in files:
-            hashes[filename] = fc.get_hash(os.path.join(root,filename))
-        print (hashes)
+            entry = self._gen_file_checksum(os.path.join(root,filename))
+            if filename != self.dbname:
+                hashes['files'][filename] = entry
+                self.results.files_new += 1
+
+        # Write out the hashes for the current directory
+        logging.debug(hashes)
+
+        return hashes
+
+    def _gen_file_checksum(self, filename):
+        fstat = os.stat(filename)
+        file_entry = { 'size': fstat.st_size,
+                       'mtime': fstat.st_mtime,
+                       }
+        
+        file_entry['hash'] = self.fc.get_hash(filename)
+        return file_entry
+
+    def _load_checksums(self, checksum_file):
+        with open(checksum_file) as f:
+            hashes = yaml.load(f)
+        return hashes
+
+    def _save_checksums(self, hashes, checksum_file):
+        with open(checksum_file, 'w') as f:
+            f.write(yaml.dump(hashes))
+
+    def _check_hashes(self, root, hashes, checksum_file):
+        file_hashes = copy.deepcopy(hashes['files'])
+        update = False
+        #print("Checking %d files" % (len(hashes['files'])))
+        for f, stats in hashes['files'].items():
+            full_path = os.path.join(root, f)
+            fstat = os.stat(full_path)
+            if fstat.st_mtime != int(stats['mtime']):
+                print("File %s changed, updating hash" % (f))
+                self.results.files_changed += 1
+                if self.update_hash_files:
+                    file_hashes[f] = self._gen_file_checksum(full_path)
+                    update = True
+            elif fstat.st_size != long(stats['size']):
+                print("ERROR: file %s has changed in size from %s to %s" % (f, stats['size'], fstat.st_size))
+                self.results.files_size_error += 1
+                if self.force_update_hash_files:
+                    file_hashes[f] = self._gen_file_checksum(full_path)
+                    update = True
+                    print("Updating checksum to new value")
+                else:
+                    print("Use -f option and rerun to force new checksum computation to accept changed file and get rid of this error")
+            else:
+                # mtime and size look good, so now check the hashes
+                #print (full_path)
+                new_hash = self._gen_file_checksum(full_path)
+                if new_hash['hash'] != stats['hash']:
+                    print("ERROR: file %s hash has changed from %s to %s" % (f, stats['hash'], new_hash['hash']))
+                    self.results.files_chksum_error += 1
+                    if self.force_update_hash_files:
+                        file_hashes[f] = new_hash
+                        update=True
+                        print("Updating checksum to new value")
+                    else:
+                        print("Use -f option and rerun to force new checksum computation to accept changed file and get rid of this error")
+                else:
+                    self.results.files_validated += 1
+        if update:
+            hashes['files'] = file_hashes
+            self._save_checksums(hashes,checksum_file) 
+
+    def _validate_hashes(self, hashes, checksum_file):
+        file_hashes = hashes['files']
+        root, dirs, files = os.walk(self.path).next()
+        set_filenames_hashes = set(file_hashes.keys())
+        set_filenames_disk = set(files)
+        set_filenames_disk.remove(self.dbname)
+
+        if set_filenames_hashes != set_filenames_disk: # Uh oh, different number of files on disk vs hash file
+
+            if set_filenames_disk > set_filenames_hashes: # New files on disk
+                print("New files detected since last validation")
+                new_files = set_filenames_disk-set_filenames_hashes
+                self._check_hashes(root, hashes, checksum_file)
+                for f in new_files:
+                    file_hashes[f] = self._gen_file_checksum(os.path.join(root,f))
+                    self.results.files_new += 1
+                if self.update_hash_files:
+                    self._save_checksums(hashes, checksum_file)
+
+            elif set_filenames_hashes > set_filenames_disk: # Files on disk deleted
+                missing_files = set_filenames_hashes - set_filenames_disk
+                print("Missing files since last validation")
+                for f in missing_files:
+                    print(f)
+                    self.results.files_deleted += 1
+                    del file_hashes[f]
+                if self.update_hash_files:
+                    self._save_checksums(hashes, checksum_file)
+                self._check_hashes(root, hashes, checksum_file)
+                    
+        else:
+            self._check_hashes(root, hashes, checksum_file)
 
 
     def validate(self):
-        logging.debug("Validating directory %s" % self.path)
+
+        #self.update_hash_files = update_hash_files
         checksum_filename = os.path.join(self.path, self.dbname)
         if not os.path.isfile(checksum_filename):
-            self.generate_checksum(checksum_filename)
+            print("Generating checksums for new directory %s" % self.path)
+            hashes = self.generate_checksum(checksum_filename)
+            self._save_checksums(hashes, checksum_filename)
+        else:
+            #print ("Validating %s " % (self.path))
+            hashes = self._load_checksums(checksum_filename)
+            self._validate_hashes(hashes, checksum_filename)
+
+
 
 
         

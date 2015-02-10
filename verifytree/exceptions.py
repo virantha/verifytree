@@ -1,0 +1,3 @@
+
+class DirectoryMissing(Exception): pass
+

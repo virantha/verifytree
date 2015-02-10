@@ -21,19 +21,23 @@ import hashlib, xxhash, frogress
 import logging
 
 blocksize = 4096
+
+
 class FileChecksum(object):
 
     def __init__(self):
         self.blocksize = blocksize
 
-    def _iter_file(self, f):
-        buf = f.read(self.blocksize)
+    def _iter_file(self, f, blocksize):
+        buf = f.read(blocksize)
         while len(buf) > 0:
             yield buf
             buf = f.read(self.blocksize)
 
+    def _get_file_size(self, filename):
+        return os.stat(filename).st_size
+
     def get_hash(self, filename):
-        logging.debug("Using blocksize %s" % (self.blocksize))
         #hasher = hashlib.md5()
         hasher = xxhash.xxh64()
 
@@ -42,11 +46,16 @@ class FileChecksum(object):
                     frogress.TransferWidget(filename+' '),
                     frogress.EtaWidget,
                     frogress.TimerWidget]
+        filesize = self._get_file_size(filename)
         with open(filename, 'rb') as f:
-            chunks = self._iter_file(f)
-            #for chunk in frogress.bar(chunks, source=f, steps=filesize/self.blocksize):
-            for chunk in frogress.bar(chunks, source=f, widgets=widgets):
-                hasher.update(chunk)
-
+            chunks = self._iter_file(f, self.blocksize)
+            if filesize == 0:
+                for chunk in chunks:
+                    hasher.update(chunk)
+                print("100.0%% | [##########] | %s 0-bytes | ETA: -- | Time: 0.0s" % filename)  
+            else:
+                for chunk in frogress.bar(chunks, source=f, widgets=widgets):
+                    hasher.update(chunk)
+                print
         return hasher.hexdigest()
 
