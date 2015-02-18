@@ -31,6 +31,7 @@ class Results(object):
         self.files_validated = 0
         self.files_chksum_error = 0
         self.files_size_error = 0
+        self.files_disk_error = 0
         self.directory = ""
 
     def __add__(self, other):
@@ -69,6 +70,7 @@ class DirChecksum(object):
         self.results.directory = self.path
         self.update_hash_files = False
         self.force_update_hash_files = False
+        self.freshen_hash_files = False
                                 
     def generate_checksum(self, checksum_filename):
         root, dirs, files = os.walk(self.path).next()
@@ -90,7 +92,14 @@ class DirChecksum(object):
                        'mtime': fstat.st_mtime,
                        }
         
-        file_entry['hash'] = self.fc.get_hash(filename)
+        _hash = self.fc.get_hash(filename)
+        if _hash:
+            file_entry['hash'] = _hash
+        else:
+            # Hmm, some kind of error (IOError!)
+            print("ERROR: file %s disk error while generating checksum" % (filename))
+            file_entry['hash'] = ""
+            self.results.files_disk_error += 1
         return file_entry
 
     def _load_checksums(self, checksum_file):
@@ -106,42 +115,53 @@ class DirChecksum(object):
         file_hashes = copy.deepcopy(hashes['files'])
         update = False
         #print("Checking %d files" % (len(hashes['files'])))
-        for f, stats in hashes['files'].items():
-            full_path = os.path.join(root, f)
-            fstat = os.stat(full_path)
-            if fstat.st_mtime != int(stats['mtime']):
-                print("File %s changed, updating hash" % (f))
-                self.results.files_changed += 1
-                if self.update_hash_files:
+        if self.freshen_hash_files:
+            for f, stats in hashes['files'].items():
+                if stats['hash'] == '' or stats['hash'] is None:
+                    full_path = os.path.join(root, f)
+                    self.results.files_new += 1
+                    print("Freshening file %s" % (f))
                     file_hashes[f] = self._gen_file_checksum(full_path)
                     update = True
-            elif fstat.st_size != long(stats['size']):
-                print("ERROR: file %s has changed in size from %s to %s" % (f, stats['size'], fstat.st_size))
-                self.results.files_size_error += 1
-                if self.force_update_hash_files:
-                    file_hashes[f] = self._gen_file_checksum(full_path)
-                    update = True
-                    print("Updating checksum to new value")
-                else:
-                    print("Use -f option and rerun to force new checksum computation to accept changed file and get rid of this error")
-            else:
-                # mtime and size look good, so now check the hashes
-                #print (full_path)
-                new_hash = self._gen_file_checksum(full_path)
-                if new_hash['hash'] != stats['hash']:
-                    print("ERROR: file %s hash has changed from %s to %s" % (f, stats['hash'], new_hash['hash']))
-                    self.results.files_chksum_error += 1
+
+        else:
+            for f, stats in hashes['files'].items():
+                full_path = os.path.join(root, f)
+                fstat = os.stat(full_path)
+                if fstat.st_mtime != int(stats['mtime']):
+                    print("File %s changed, updating hash" % (f))
+                    self.results.files_changed += 1
+                    if self.update_hash_files:
+                        file_hashes[f] = self._gen_file_checksum(full_path)
+                        update = True
+                elif fstat.st_size != long(stats['size']):
+                    print("ERROR: file %s has changed in size from %s to %s" % (f, stats['size'], fstat.st_size))
+                    self.results.files_size_error += 1
                     if self.force_update_hash_files:
-                        file_hashes[f] = new_hash
-                        update=True
+                        file_hashes[f] = self._gen_file_checksum(full_path)
+                        update = True
                         print("Updating checksum to new value")
                     else:
                         print("Use -f option and rerun to force new checksum computation to accept changed file and get rid of this error")
                 else:
-                    self.results.files_validated += 1
+                    # mtime and size look good, so now check the hashes
+                    #print (full_path)
+                    new_hash = self._gen_file_checksum(full_path)
+                    if new_hash['hash'] != stats.get('hash',""):
+                        print("ERROR: file %s hash has changed from %s to %s" % (f, stats['hash'], new_hash['hash']))
+                        self.results.files_chksum_error += 1
+                        if self.force_update_hash_files:
+                            file_hashes[f] = new_hash
+                            update=True
+                            print("Updating checksum to new value")
+                        else:
+                            print("Use -f option and rerun to force new checksum computation to accept changed file and get rid of this error")
+                    else:
+                        self.results.files_validated += 1
         if update:
             hashes['files'] = file_hashes
             self._save_checksums(hashes,checksum_file) 
+
 
     def _validate_hashes(self, hashes, checksum_file):
         file_hashes = hashes['files']

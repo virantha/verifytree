@@ -47,15 +47,19 @@ class FileChecksum(object):
                     frogress.EtaWidget,
                     frogress.TimerWidget]
         filesize = self._get_file_size(filename)
-        with open(filename, 'rb') as f:
-            chunks = self._iter_file(f, self.blocksize)
-            if filesize == 0:
-                for chunk in chunks:
-                    hasher.update(chunk)
-                print("100.0%% | [##########] | %s 0-bytes | ETA: -- | Time: 0.0s" % filename)  
-            else:
-                for chunk in frogress.bar(chunks, source=f, widgets=widgets):
-                    hasher.update(chunk)
-                print
+        try:
+            with open(filename, 'rb') as f:
+                chunks = self._iter_file(f, self.blocksize)
+                if filesize == 0:
+                    for chunk in chunks:
+                        hasher.update(chunk)
+                    print("100.0%% | [##########] | %s 0-bytes | ETA: -- | Time: 0.0s" % filename)  
+                else:
+                    for chunk in frogress.bar(chunks, source=f, widgets=widgets):
+                        hasher.update(chunk)
+                    print
+        except IOError as e:
+            return None
+
         return hasher.hexdigest()
 

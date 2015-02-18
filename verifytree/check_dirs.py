@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+from __future__ import print_function
 import os, logging
 import dir_checksum
 
@@ -21,6 +22,7 @@ class CheckDirs(object):
     def __init__(self):
         self.update_hash_files = False  # Write out the checksum on modified/deleted files with proper timestamps
         self.force_update_hash_files = False # Force on checksum error to new hash (only do this if you're sure this wasn't a bit-rot or file corruption!)
+        self.freshen_hash_files = False
         pass
 
 
@@ -28,6 +30,7 @@ class CheckDirs(object):
         dc = dir_checksum.DirChecksum(path)
         dc.update_hash_files = self.update_hash_files
         dc.force_update_hash_files = self.force_update_hash_files
+        dc.freshen_hash_files = self.freshen_hash_files
         dc.validate()
         return dc
 
@@ -46,6 +49,27 @@ class CheckDirs(object):
 
         print ("Summary")
         print (total)
+
+    def scan(self, path):
+        """
+            Scan a directory recursively to build up a count and total size to get ETA
+        """
+        n_dirs = 1
+        n_files = 0
+        sz_files = 0
+
+        print()
+        for root, subdirs, files in os.walk(path):
+            print("\rScanned %d directories..." % n_dirs, end='')
+            n_dirs += len(subdirs)
+            for f in files:
+                n_files += 1
+                stats = os.stat(os.path.join(root,f))
+                sz_files += stats.st_size
+        print()
+        return n_dirs, n_files, sz_files
+
+
 
 
         

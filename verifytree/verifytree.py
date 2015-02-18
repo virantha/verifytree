@@ -16,9 +16,10 @@
 """Verify that two trees have identical files.
 
 Usage:
-    verifytree [options] compare <src> <dst>
     verifytree [options] checksum <file>
     verifytree [options] validate <dir> [-u] [--no-subdirs]
+    verifytree [options] freshen <dir> [-u] [--no-subdirs]
+    verifytree [options] scan <dir>
 
 Options:
     -v --verbose            Verbose logging
@@ -64,6 +65,7 @@ class VerifyTree(object):
         self.config = None
         self.update_hash_files = False
         self.force_update_hash_files = False
+        self.freshen_hash_files = False
 
     def _get_config_file(self, config_file):
         """
@@ -92,30 +94,6 @@ class VerifyTree(object):
             return statinfo.st_size
         else:
             return -1
-    
-    def _iter_file(self, f):
-        buf = f.read(self.blocksize)
-        while len(buf) > 0:
-            yield buf
-            buf = f.read(self.blocksize)
-
-    def _get_hash(self, filename):
-        #hasher = hashlib.md5()
-        hasher = xxhash.xxh64()
-
-        widgets = [ frogress.PercentageWidget, 
-                    frogress.BarWidget, 
-                    frogress.TransferWidget(filename+' '),
-                    frogress.EtaWidget,
-                    frogress.TimerWidget]
-        with open(filename, 'rb') as f:
-            chunks = self._iter_file(f)
-            #for chunk in frogress.bar(chunks, source=f, steps=filesize/self.blocksize):
-            for chunk in frogress.bar(chunks, source=f, widgets=widgets):
-                hasher.update(chunk)
-
-        return hasher.hexdigest()
-
 
     def get_options(self, argv):
         """
@@ -141,16 +119,17 @@ class VerifyTree(object):
 
         if self.args['checksum']:
             self.file_to_checksum = self.args['<file>']
-        elif self.args['validate']:
+        elif self.args['validate'] or self.args['freshen']:
             self.dir_to_validate = self.args['<dir>']
             if self.args['-u']:
                 self.update_hash_files = True
             if self.args['-f']:
                 self.force_update_hash_files = True
+            if self.args['freshen']:
+                self.freshen_hash_files = True
 
-        else:
-            self.src_tree = self.args['<src>']
-            self.dst_tree = self.args['<dst>']
+        elif self.args['scan']:
+            self.dir_to_validate = self.args['<dir>']
 
 
     def run_compare(self, dcmp, level):
@@ -180,14 +159,17 @@ class VerifyTree(object):
             #. Do something
             #. Do something else
         """
+        reload(sys)
+        sys.setdefaultencoding('utf8')
         # Read the command line options
+
         self.get_options(argv)
         if self.args['checksum']:
             fc = file_checksum.FileChecksum()
             print ("Checksumming %s" % (self.file_to_checksum), end='')
             #print (self._get_hash(self.file_to_checksum))
             print (fc.get_hash(self.file_to_checksum))
-        elif self.args['validate']:
+        elif self.args['validate'] or self.args['freshen']:
             checker = check_dirs.CheckDirs()
             if self.force_update_hash_files:
                 print("Force updating checksum files")
@@ -196,18 +178,22 @@ class VerifyTree(object):
             elif self.update_hash_files:
                 print("Updating checksum files")
                 checker.update_hash_files = self.update_hash_files
+            if self.freshen_hash_files:
+                print("Only freshening checksums for new files since last scan")
+                checker.freshen_hash_files = self.freshen_hash_files
 
             if self.args['--no-subdirs']:
                 checker.validate_single_directory(self.dir_to_validate)
             else:
                 checker.validate(self.dir_to_validate)
-            
+        elif self.args['scan']:
+            checker = check_dirs.CheckDirs()
+            num_dirs, num_files, size_files = checker.scan(self.dir_to_validate)
+            print("%d dirs, %d files, %7.2fGB" % (num_dirs, num_files, float(size_files)/(2**30)))
         else:
-            print("Verifying that destination %s matches with source %s" % (self.dst_tree, self.src_tree))
-            dcmp = dircmp(self.src_tree, self.dst_tree)
-            self.run_compare(dcmp,0)
+            error("Shouldn't be here!")
 
-        #dcmp.report_full_closure()
+            
 
 
 def main():
