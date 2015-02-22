@@ -229,26 +229,27 @@ class DirChecksum(object):
 
         if set_filenames_hashes != set_filenames_disk: # Uh oh, different number of files on disk vs hash file
 
-            if set_filenames_disk > set_filenames_hashes: # New files on disk
-                print("New files detected since last validation")
-                new_files = set_filenames_disk-set_filenames_hashes
-                self._check_hashes(root, hashes, checksum_file)
-                for f in new_files:
-                    file_hashes[f] = self._gen_file_checksum(os.path.join(root,f))
-                    self.results.files_new += 1
-                if self.update_hash_files:
-                    self._save_checksums(hashes, checksum_file)
-
-            elif set_filenames_hashes > set_filenames_disk: # Files on disk deleted
-                missing_files = set_filenames_hashes - set_filenames_disk
+            # Remove any missing files and mark it
+            missing_files = set_filenames_hashes - set_filenames_disk
+            if len(missing_files) > 0: # Files on disk deleted
                 print("Missing files since last validation")
                 for f in missing_files:
                     print(f)
                     self.results.files_deleted += 1
                     del file_hashes[f]
-                if self.update_hash_files:
-                    self._save_checksums(hashes, checksum_file)
-                self._check_hashes(root, hashes, checksum_file)
+            # Check all files previously checked minus the missing ones
+            self._check_hashes(root, hashes, checksum_file)
+
+            # Add in the new files since last check
+            new_files = set_filenames_disk - set_filenames_hashes
+            if len(new_files) > 0: # New files on disk
+                print("New files detected since last validation")
+                for f in new_files:
+                    file_hashes[f] = self._gen_file_checksum(os.path.join(root,f))
+                    self.results.files_new += 1
+
+            if self.update_hash_files:
+                self._save_checksums(hashes, checksum_file)
                     
         else:
             self._check_hashes(root, hashes, checksum_file)
