@@ -36,6 +36,7 @@ class CheckDirs(object):
 
     def validate(self, path):
         total = dir_checksum.Results()
+        total.dirs_total += 1  # Account for this starting directory
         for root, subdirs, files in os.walk(path):
             result = self.validate_single_directory(root)
 

@@ -32,12 +32,17 @@ class Results(object):
         self.files_chksum_error = 0
         self.files_size_error = 0
         self.files_disk_error = 0
+
+        self.dirs_total = 0
+        self.dirs_missing = 0
+        self.dirs_new = 0
+
         self.directory = ""
 
     def __add__(self, other):
         sumr = Results()
         for attr in self.__dict__:
-            if attr.startswith('files'):
+            if attr.startswith('files') or attr.startswith('dirs'):
                 sumr.__dict__[attr] = self.__dict__[attr] + other.__dict__[attr]
             elif attr == 'directory':
                 if type(self.__dict__[attr]) is not list:
@@ -52,10 +57,17 @@ class Results(object):
         return sumr
 
     def __str__ (self):
+        res = []
+        headers = [x for x in self.__dict__ if x.startswith('dirs_')]
+        table = [ [self.__dict__[x] for x in headers] ]
+        res.append(tabulate.tabulate(table, headers))
+
         
         headers = [x for x in self.__dict__ if x.startswith('files_')]
         table = [ [self.__dict__[x] for x in headers] ]
-        return tabulate.tabulate(table, headers)
+        res.append(tabulate.tabulate(table, headers))
+
+        return '\n\n'.join(res)
 
 
 class DirChecksum(object):
@@ -74,7 +86,9 @@ class DirChecksum(object):
                                 
     def generate_checksum(self, checksum_filename):
         root, dirs, files = os.walk(self.path).next()
-        hashes = {'files': {}}
+        hashes = {  'dirs': dirs,
+                    'files': {}
+                }
         for filename in files:
             entry = self._gen_file_checksum(os.path.join(root,filename))
             if filename != self.dbname:
@@ -163,9 +177,52 @@ class DirChecksum(object):
             self._save_checksums(hashes,checksum_file) 
 
 
+    def _are_sub_dirs_same(self, hashes, root, dirs):
+        self.results.dirs_total += len(dirs)
+        if 'dirs' in hashes:
+            # Just a check for backwards compatibility with old versions that
+            # did not save the subdirectory names
+            hashes_set = set(hashes['dirs'])
+            disk_set = set(dirs)
+
+            new_dirs = disk_set - hashes_set
+            if len(new_dirs) != 0:
+                print("New sub-directories found:")
+                print ('\n'.join(["- %s" % (os.path.join(root,x)) for x in new_dirs]))
+                self.results.dirs_new += len(new_dirs)
+
+            missing_dirs = hashes_set - disk_set
+            if len(missing_dirs) != 0:
+                print("Missing sub-directories from last scan found:")
+                print ('\n'.join(["- %s" % (os.path.join(root,x)) for x in missing_dirs]))
+                self.results.dirs_missing += len(missing_dirs)
+
+            if disk_set != hashes_set:
+                # There were differences, so we let's update the hashes
+                hashes['dirs'] = dirs
+                return False
+            else:
+                return True
+        else:
+            # Ah ha, the hashes files was created by an old version of this program
+            # so just add it now
+            hashes['dirs'] = copy.deepcopy(dirs)
+            self.results.dirs_new += len(dirs)
+            print hashes
+            return False
+
     def _validate_hashes(self, hashes, checksum_file):
         file_hashes = hashes['files']
         root, dirs, files = os.walk(self.path).next()
+
+        # First, make sure the sub-directories previously recorded are all here
+        if not self._are_sub_dirs_same(hashes, root, dirs):
+            # Uh oh, sub directory hashes were different, so let's update the hash file
+            if self.update_hash_files:
+                self._save_checksums(hashes, checksum_file)
+
+
+
         set_filenames_hashes = set(file_hashes.keys())
         set_filenames_disk = set(files)
         set_filenames_disk.remove(self.dbname)
