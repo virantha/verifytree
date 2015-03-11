@@ -78,7 +78,6 @@ class DirChecksum(object):
         if not os.path.exists(self.path):
             raise DirectoryMissing('%s does not exist' % self.path)
         self.fc = FileChecksum()
-        self.dbname = '.verifytree_checksum'
         self.dbname = dbname
         self.results = Results()
         self.results.directory = self.path
@@ -259,8 +258,9 @@ class DirChecksum(object):
     def tally_dir(self, path):
         root, dirs, files = os.walk(path).next()
         self.work_tally['dirs'] -= 1
-        self.work_tally['files'] -= len(files)
-        self.work_tally['size'] -= sum([os.stat(os.path.join(root,f)).st_size for f in files if f != self.dbname])
+        file_size_list = [os.stat(os.path.join(root,f)).st_size for f in files if f != self.dbname]
+        self.work_tally['files'] -= len(file_size_list)
+        self.work_tally['size'] -= sum(file_size_list)
 
 
     def validate(self):
