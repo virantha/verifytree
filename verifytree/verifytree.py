@@ -32,15 +32,14 @@ Options:
 """
 
 from __future__ import print_function
-import docopt
-import sys, os
-import logging
-import shutil
+import sys, os, logging, shutil, time
+from filecmp import dircmp
 
 from version import __version__
-import yaml
 
-from filecmp import dircmp
+# External pkg imports
+import docopt
+import yaml
 import hashlib, xxhash, frogress
 import file_checksum
 import dir_checksum
@@ -66,6 +65,9 @@ class VerifyTree(object):
         self.update_hash_files = False
         self.force_update_hash_files = False
         self.freshen_hash_files = False
+        self.timing = { 'start': 0,
+                        'end': 0,
+                      }
 
     def _get_config_file(self, config_file):
         """
@@ -151,7 +153,16 @@ class VerifyTree(object):
         for sub_dcmp in dcmp.subdirs.values():
             self.run_compare(sub_dcmp, level+1)
 
-
+    def report_timing(self):
+        #print("="*40)
+        duration = self.timing['end'] - self.timing['start']
+        h = int(duration / (60*60))
+        m = int((duration - h*60*60) / 60)
+        s = int(duration - h*60*60 - m*60)
+        print("\nElapsed time: %dh %dm %ds\n" % (h,m,s))
+        #print("="*40)
+        
+        
     def go(self, argv):
         """ 
             The main entry point into VerifyTree
@@ -164,13 +175,21 @@ class VerifyTree(object):
         # Read the command line options
 
         self.get_options(argv)
+
+        self.timing['start'] = time.time()
+
         if self.args['checksum']:
             fc = file_checksum.FileChecksum()
             print ("Checksumming %s" % (self.file_to_checksum), end='')
             #print (self._get_hash(self.file_to_checksum))
             print (fc.get_hash(self.file_to_checksum))
         elif self.args['validate'] or self.args['freshen']:
+            # Scan the directory
             checker = check_dirs.CheckDirs()
+            print("Building file list:")
+            num_dirs, num_files, size_files = checker.scan(self.dir_to_validate)
+            print("%d dirs, %d files, %7.2fGB" % (num_dirs, num_files, float(size_files)/(2**30)))
+
             if self.force_update_hash_files:
                 print("Force updating checksum files")
                 checker.force_update_hash_files = self.force_update_hash_files
@@ -187,12 +206,12 @@ class VerifyTree(object):
             else:
                 checker.validate(self.dir_to_validate)
         elif self.args['scan']:
-            checker = check_dirs.CheckDirs()
-            num_dirs, num_files, size_files = checker.scan(self.dir_to_validate)
-            print("%d dirs, %d files, %7.2fGB" % (num_dirs, num_files, float(size_files)/(2**30)))
+            pass
         else:
             error("Shouldn't be here!")
 
+        self.timing['end'] = time.time()
+        self.report_timing()
             
 
 

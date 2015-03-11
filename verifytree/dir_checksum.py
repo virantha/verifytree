@@ -72,12 +72,14 @@ class Results(object):
 
 class DirChecksum(object):
 
-    def __init__ (self, path):
+    def __init__ (self, path, dbname, work_tally):
         self.path = path
+        self.work_tally = work_tally
         if not os.path.exists(self.path):
             raise DirectoryMissing('%s does not exist' % self.path)
-        self.dbname = '.verifytree_checksum'
         self.fc = FileChecksum()
+        self.dbname = '.verifytree_checksum'
+        self.dbname = dbname
         self.results = Results()
         self.results.directory = self.path
         self.update_hash_files = False
@@ -208,7 +210,7 @@ class DirChecksum(object):
             # so just add it now
             hashes['dirs'] = copy.deepcopy(dirs)
             self.results.dirs_new += len(dirs)
-            print hashes
+            #print hashes
             return False
 
     def _validate_hashes(self, hashes, checksum_file):
@@ -220,7 +222,6 @@ class DirChecksum(object):
             # Uh oh, sub directory hashes were different, so let's update the hash file
             if self.update_hash_files:
                 self._save_checksums(hashes, checksum_file)
-
 
 
         set_filenames_hashes = set(file_hashes.keys())
@@ -255,10 +256,18 @@ class DirChecksum(object):
             self._check_hashes(root, hashes, checksum_file)
 
 
+    def tally_dir(self, path):
+        root, dirs, files = os.walk(path).next()
+        self.work_tally['dirs'] -= 1
+        self.work_tally['files'] -= len(files)
+        self.work_tally['size'] -= sum([os.stat(os.path.join(root,f)).st_size for f in files if f != self.dbname])
+
+
     def validate(self):
 
         #self.update_hash_files = update_hash_files
         checksum_filename = os.path.join(self.path, self.dbname)
+        print("Remaining: %d dirs, %d files, %7.2fGB" % (self.work_tally['dirs'], self.work_tally['files'], float(self.work_tally['size'])/2**30))
         if not os.path.isfile(checksum_filename):
             print("Generating checksums for new directory %s" % self.path)
             hashes = self.generate_checksum(checksum_filename)
@@ -267,7 +276,7 @@ class DirChecksum(object):
             #print ("Validating %s " % (self.path))
             hashes = self._load_checksums(checksum_filename)
             self._validate_hashes(hashes, checksum_filename)
-
+        self.tally_dir(self.path)
 
 
 

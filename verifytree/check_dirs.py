@@ -23,11 +23,11 @@ class CheckDirs(object):
         self.update_hash_files = False  # Write out the checksum on modified/deleted files with proper timestamps
         self.force_update_hash_files = False # Force on checksum error to new hash (only do this if you're sure this wasn't a bit-rot or file corruption!)
         self.freshen_hash_files = False
-        pass
+        self.dbname = '.verifytree_checksum'
 
 
     def validate_single_directory(self, path):
-        dc = dir_checksum.DirChecksum(path)
+        dc = dir_checksum.DirChecksum(path, self.dbname, self.work)
         dc.update_hash_files = self.update_hash_files
         dc.force_update_hash_files = self.force_update_hash_files
         dc.freshen_hash_files = self.freshen_hash_files
@@ -59,15 +59,20 @@ class CheckDirs(object):
         n_files = 0
         sz_files = 0
 
-        print()
         for root, subdirs, files in os.walk(path):
             print("\rScanned %d directories..." % n_dirs, end='')
             n_dirs += len(subdirs)
             for f in files:
-                n_files += 1
-                stats = os.stat(os.path.join(root,f))
-                sz_files += stats.st_size
+                if f != self.dbname:
+                    n_files += 1
+                    stats = os.stat(os.path.join(root,f))
+                    sz_files += stats.st_size
         print()
+        self.work = { 'dirs': n_dirs,
+                      'files': n_files,
+                      'size': sz_files
+                    }
+
         return n_dirs, n_files, sz_files
 
 
