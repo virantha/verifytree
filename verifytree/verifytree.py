@@ -36,6 +36,7 @@ import sys, os, logging, shutil, time
 from filecmp import dircmp
 
 from version import __version__
+from utils import error
 
 # External pkg imports
 import docopt
@@ -123,6 +124,8 @@ class VerifyTree(object):
             self.file_to_checksum = self.args['<file>']
         elif self.args['validate'] or self.args['freshen']:
             self.dir_to_validate = self.args['<dir>']
+            if not os.path.isdir(self.dir_to_validate):
+                error("%s not found" % self.dir_to_validate)
             if self.args['-u']:
                 self.update_hash_files = True
             if self.args['-f']:
